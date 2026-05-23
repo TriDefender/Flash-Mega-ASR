@@ -1,0 +1,53 @@
+﻿# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+conda/
+
+# Logs and outputs
+logs/
+*.log
+runs/
+outputs/
+wandb/
+tensorboard/
+
+# Checkpoints and model weights
+checkpoints/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+*.onnx
+
+# Data and audio files
+datasets/
+
+# Private files
+.env
+private/
+secrets/
+
+# Temporarily unreleased DAPO module
+src_MegaASR/train/DAPO_lora/*
+!src_MegaASR/train/DAPO_lora/README.md
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+ckpt/
+
+# Local ablation experiments
+scripts/infer_no_stage2_llm.py
