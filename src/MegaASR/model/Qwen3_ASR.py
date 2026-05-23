@@ -109,6 +109,9 @@ class Qwen3ASR:
         )
 
         if return_objects:
+            # Return raw ASRTranscription objects (with .text, .chunks etc.)
+            if not input_was_list and isinstance(results, list) and len(results) == 1:
+                return results[0]
             return results
 
         # Normalize to list of strings

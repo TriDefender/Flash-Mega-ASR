@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import json
 import os
 import time
-import warnings
 from pathlib import Path
 from typing import Any
 
 import torch
-from safetensors.torch import load_file as safe_load_file
 
 from .Qwen3_ASR import Qwen3ASR
 from .router import AudioQualityRouter
@@ -116,6 +113,7 @@ class MegaASR:
         language: str | None = None,
         return_objects: bool = False,
         return_route: bool = False,
+        return_time_stamps: bool = False,
         **transcribe_kwargs: Any,
     ) -> Any:
         audio = self._unwrap_audio(audio)
@@ -126,6 +124,7 @@ class MegaASR:
             audio,
             language=language,
             return_objects=return_objects,
+            return_time_stamps=return_time_stamps,
             **transcribe_kwargs,
         )
 

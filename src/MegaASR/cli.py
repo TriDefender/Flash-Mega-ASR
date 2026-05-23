@@ -12,7 +12,7 @@ from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 logger = logging.getLogger(__name__)
 
-ATTN_CHOICES = ["auto", "flash_attention_2", "sdpa", "eager"]
+ATTN_CHOICES = ["auto", "flash_attention_2", "flash_attention_3", "sdpa", "eager"]
 DTYPE_CHOICES = ["auto", "bfloat16", "float16", "float32"]
 
 
@@ -287,6 +287,7 @@ def main(argv: list[str] | None = None) -> None:
         infer_kwargs = {
             "language": language,
             "return_time_stamps": args.timestamps,
+            "return_objects": args.timestamps,
         }
 
         if len(audio_inputs) == 1:

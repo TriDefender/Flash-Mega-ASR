@@ -43,14 +43,13 @@ class AudioQualityRouter:
             checkpoint_config = json.loads(metadata.get("config", "{}"))
             config = checkpoint_config.get("model", {})
             state_dict = safe_load_file(str(checkpoint_path), device=self.device)
-        else:
-            checkpoint = torch.load(
-                self.checkpoint_path,
-                map_location=self.device,
-                weights_only=False,
+        elif checkpoint_path.suffix in (".pt", ".pth", ".bin"):
+            raise ValueError(
+                f"Non-safetensors checkpoint '{checkpoint_path}' is not supported for security. "
+                "Convert to safetensors first: `safetensors.torch.save_file(state_dict, path)`"
             )
-            config = checkpoint.get("config", {}).get("model", {})
-            state_dict = checkpoint["model_state_dict"]
+        else:
+            raise ValueError(f"Unsupported checkpoint format: {checkpoint_path.suffix}. Use .safetensors")
 
         model = create_audio_quality_model(config)
         model.load_state_dict(state_dict)
