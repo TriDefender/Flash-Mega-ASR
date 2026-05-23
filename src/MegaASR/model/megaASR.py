@@ -141,8 +141,8 @@ class MegaASR:
                 "use_lora": use_lora,
                 "degraded_prob": degraded_prob,
                 "route_source": route_source,
-                "backend": getattr(self.asr, "backend", None),
-                "device": getattr(self.asr, "device", None),
+                "backend": getattr(self.asr, "attn_implementation", None),
+                "device": getattr(self.asr, "device_map", None),
             }
 
         return result

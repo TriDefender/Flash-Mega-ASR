@@ -244,11 +244,9 @@ def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     args = parse_args(argv)
 
-    from MegaASR.model.megaASR import MegaASR
     from MegaASR.runtime.backend import resolve_attn_backend
     from MegaASR.runtime.device import resolve_device
 
-    paths = resolve_ckpt_paths(args)
     device = resolve_device(args.device)
     dtype = resolve_dtype_arg(args.dtype, device)
     backend = resolve_attn_backend(args.attn)
@@ -258,9 +256,12 @@ def main(argv: list[str] | None = None) -> None:
         if not args.file_name and not args.files:
             return
 
+    from MegaASR.model.megaASR import MegaASR
+
+    paths = resolve_ckpt_paths(args)
+
     language = normalize_language(args.language)
     audio_inputs = args.files or [args.file_name]
-    return_objects = args.timestamps
 
     model = MegaASR(
         model_path=paths["model_path"],
@@ -283,19 +284,22 @@ def main(argv: list[str] | None = None) -> None:
         progress.add_task("[yellow]Transcribing...", total=None)
         start = time.perf_counter()
 
+        infer_kwargs = {
+            "language": language,
+            "return_time_stamps": args.timestamps,
+        }
+
         if len(audio_inputs) == 1:
             raw_result = model.infer(
                 audio_inputs[0],
-                language=language,
-                return_objects=return_objects,
                 return_route=True,
+                **infer_kwargs,
             )
             results = [build_single_result(audio_inputs[0], raw_result, include_route=True)]
         else:
             raw_results = model.batch_infer(
                 audio_inputs,
-                language=language,
-                return_objects=return_objects,
+                **infer_kwargs,
             )
             results = build_batch_results(audio_inputs, raw_results)
 

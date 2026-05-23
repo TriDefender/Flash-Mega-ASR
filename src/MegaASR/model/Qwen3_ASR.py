@@ -92,8 +92,10 @@ class Qwen3ASR:
         *,
         language: str | None = None,
         return_objects: bool = False,
+        return_time_stamps: bool = False,
         **transcribe_kwargs: Any,
     ) -> str | list[str] | Any:
+        input_was_list = isinstance(audio, (list, tuple))
         if isinstance(audio, os.PathLike):
             audio = str(audio)
         elif isinstance(audio, (list, tuple)):
@@ -102,16 +104,23 @@ class Qwen3ASR:
         results = self.model.transcribe(
             audio=audio,
             language=language,
+            return_time_stamps=return_time_stamps,
             **transcribe_kwargs,
         )
 
         if return_objects:
             return results
 
+        # Normalize to list of strings
         if isinstance(results, list):
-            return [str(getattr(result, "text", result)).strip() for result in results]
+            texts = [str(getattr(result, "text", result)).strip() for result in results]
+        else:
+            texts = [str(getattr(results, "text", results)).strip()]
 
-        return str(getattr(results, "text", results)).strip()
+        # Return a single string for single audio input, list for batch input
+        if not input_was_list and len(texts) == 1:
+            return texts[0]
+        return texts
 
 
 def get_mega_asr(*args: Any, **kwargs: Any) -> Qwen3ASR:
