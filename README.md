@@ -117,41 +117,6 @@ streamlit run webui.py
 
 Provides mic recording, file upload, real-time spectrogram visualization, and system resource monitoring. Supports English, Chinese, and Japanese interface languages.
 
-## Training
-
-### A2S-SFT Fine-tuning
-
-Progressive LoRA fine-tuning on the Qwen3-ASR base model with configurable scopes:
-
-```
-Stage 1: encoder_aligner  — adapt speech encoder + audio-text aligner
-Stage 2: llm              — adapt the language model head
-Stage 3: all              — joint optimization
-```
-
-```bash
-bash scripts/finetune.sh
-```
-
-See [src/MegaASR/A2S-SFT/readme.md](src/MegaASR/A2S-SFT/readme.md) for details on LoRA scopes, per-module learning rates, and stage transitions.
-
-### DG-WGPO Reinforcement Learning
-
-Reinforcement learning pipeline for LoRA training (coming soon). See [src/MegaASR/DG-WGPO/README.md](src/MegaASR/DG-WGPO/README.md).
-
-## Evaluation
-
-```bash
-python src/MegaASR/eval/evaluate_wer.py \
-  --ckpt_dir ckpt/Mega-ASR \
-  --input_jsonl test.jsonl \
-  --output_jsonl results.jsonl
-```
-
-Input is JSONL with `audio` and `answer` fields. The script appends `prediction`, `wer`, `metric` (WER for English, CER for Chinese), `num_edits`, and `ref_len` to each record.
-
-See [src/MegaASR/eval/readme.md](src/MegaASR/eval/readme.md) for format details.
-
 ## Benchmark
 
 Batch inference throughput comparison against the original Mega-ASR. All tests run on a single **NVIDIA GeForce RTX 4060 Ti** with batch size 4, `max_new_tokens=256`, 6 audio samples (53.8s total audio), 3 inference repeats each.
