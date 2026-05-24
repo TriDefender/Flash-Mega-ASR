@@ -22,9 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-flash-attn = [
-    "flash-attn>=2.5",
-]
+flash-attn = []
 webui = [
     "streamlit",
     "streamlit-mic-recorder",

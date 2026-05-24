@@ -16,7 +16,7 @@ set -euo pipefail
 # LOG_FILE=
 # RUN_NAME=
 
-torchrun --nproc_per_node=2 A2S-SFT/finetune.py \
+torchrun --nproc_per_node=2 src/MegaASR/A2S-SFT/finetune.py \
   --model_path Qwen3-ASR-1.7B \
   --train_file ${TRAIN_JSONL} \
   --eval_file ${VAL_JSONL} \

@@ -1,9 +1,11 @@
-﻿# Python cache
+﻿# Python
 __pycache__/
 *.py[cod]
 *.pyo
-*.pyd
 *.egg-info/
+*.egg
+dist/
+build/
 
 # Virtual environments
 .venv/
@@ -20,6 +22,7 @@ wandb/
 tensorboard/
 
 # Checkpoints and model weights
+ckpt/
 checkpoints/
 *.pt
 *.pth
@@ -28,26 +31,25 @@ checkpoints/
 *.ckpt
 *.onnx
 
-# Data and audio files
+# Data
 datasets/
 
-# Private files
+# Private
 .env
 private/
 secrets/
 
-# Temporarily unreleased DAPO module
-src_MegaASR/train/DAPO_lora/*
-!src_MegaASR/train/DAPO_lora/README.md
-
-# System files
+# System
 .DS_Store
 Thumbs.db
 
 # IDE
 .vscode/
 .idea/
-ckpt/
 
-# Local ablation experiments
-scripts/infer_no_stage2_llm.py
+# Test / cache
+.pytest_cache/
+.cache/
+
+# Package manager lockfiles (use pyproject.toml as single source of truth)
+uv.lock
