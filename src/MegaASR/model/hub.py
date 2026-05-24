@@ -29,12 +29,23 @@ _MEGA_ASR_PATTERNS = [
 
 
 def _is_repo_id(value: str) -> bool:
-    """Check if a string looks like an HF repo ID (org/name) rather than a local path."""
+    """Check if a string looks like an HF repo ID (org/name) rather than a local path.
+
+    HF repo IDs have exactly two segments separated by ``/``  — e.g.
+    ``Qwen/Qwen3-ASR-1.7B``.  Anything with more slashes, leading ``/``,
+    ``./``, ``../``, or a Windows drive letter is treated as a local path.
+    """
+    # Windows paths with backslashes are never repo IDs
     if "\\" in value:
         return False
-    if "/" in value and not Path(value).expanduser().is_dir():
-        return True
-    return False
+    # Absolute or relative path prefixes are never repo IDs
+    if value.startswith("/") or value.startswith("./") or value.startswith("../"):
+        return False
+    # Repo IDs have exactly two non-empty segments: org/name
+    parts = value.split("/")
+    if len(parts) != 2:
+        return False
+    return bool(parts[0]) and bool(parts[1])
 
 
 def _normalize_model_source(model_path: str | os.PathLike[str]) -> str:
@@ -141,6 +152,16 @@ def resolve_sources(
             "lora_dir": str(Path(lora_dir).expanduser()),
             "router_checkpoint": str(Path(router_checkpoint).expanduser()) if routing_enabled and router_checkpoint else None,
         }
+
+    # 2b. Auto-detect default local layout (created by scripts/download.py)
+    # Only when no model_path was provided — user hasn't specified a source.
+    _default_ckpt = Path("ckpt/Mega-ASR")
+    if model_path is None and _default_ckpt.is_dir():
+        logger.info("Detected local checkpoint layout at %s — using it as ckpt_dir", _default_ckpt)
+        return resolve_sources(
+            ckpt_dir=str(_default_ckpt),
+            routing_enabled=routing_enabled,
+        )
 
     # 3. Partial paths + HF Hub for the rest
     snapshot_path: str | None = None

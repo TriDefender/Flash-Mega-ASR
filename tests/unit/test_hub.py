@@ -72,3 +72,95 @@ def test_download_all_assets_downloads_full_local_layout(monkeypatch, tmp_path):
             "local_dir_use_symlinks": False,
         },
     ]
+
+
+# ---- _is_repo_id edge cases ------------------------------------------------ #
+
+
+class TestIsRepoId:
+    """Validate the repo-ID vs local-path heuristic."""
+
+    def test_standard_repo_id(self):
+        assert hub._is_repo_id("Qwen/Qwen3-ASR-1.7B") is True
+
+    def test_mega_asr_repo_id(self):
+        assert hub._is_repo_id("zhifeixie/Mega-ASR") is True
+
+    def test_nested_local_path(self):
+        """Multi-segment local paths are NOT repo IDs."""
+        assert hub._is_repo_id("tmp/nonexistent/model") is False
+
+    def test_deep_nested_local_path(self):
+        assert hub._is_repo_id("a/b/c/d") is False
+
+    def test_relative_dot_slash(self):
+        assert hub._is_repo_id("./local/model") is False
+
+    def test_relative_dot_dot_slash(self):
+        assert hub._is_repo_id("../parent/model") is False
+
+    def test_absolute_path(self):
+        assert hub._is_repo_id("/abs/path") is False
+
+    def test_windows_backslash(self):
+        assert hub._is_repo_id("C:\\Users\\model") is False
+
+    def test_bare_name_no_slash(self):
+        assert hub._is_repo_id("just-a-name") is False
+
+    def test_empty_string(self):
+        assert hub._is_repo_id("") is False
+
+    def test_trailing_slash(self):
+        assert hub._is_repo_id("org/") is False
+
+    def test_leading_slash(self):
+        assert hub._is_repo_id("/name") is False
+
+
+# ---- resolve_sources: local-path and ckpt_dir default flows ---------------- #
+
+
+class TestResolveLocalPaths:
+    """Ensure local paths are never mangled into repo IDs."""
+
+    def test_ckpt_dir_overrides_everything(self, tmp_path):
+        ckpt = tmp_path / "checkpoints" / "Mega-ASR"
+        sources = hub.resolve_sources(ckpt_dir=ckpt)
+        assert sources["model_path"] == str(ckpt / "Qwen3-ASR-1.7B")
+        assert sources["lora_dir"] == str(ckpt / "mega-asr-merged")
+        assert sources["router_checkpoint"] == str(
+            ckpt / "audio_quality_router" / "best_acc_model.safetensors"
+        )
+
+    def test_ckpt_dir_with_routing_disabled(self, tmp_path):
+        ckpt = tmp_path / "checkpoints" / "Mega-ASR"
+        sources = hub.resolve_sources(ckpt_dir=ckpt, routing_enabled=False)
+        assert sources["model_path"] == str(ckpt / "Qwen3-ASR-1.7B")
+        assert sources["router_checkpoint"] is None
+
+    def test_explicit_local_model_path_not_mangled(self, tmp_path):
+        """A non-existent local path with '/' must NOT be treated as a repo ID."""
+        model_dir = str(tmp_path / "nonexistent" / "model")
+        sources = hub.resolve_sources(
+            model_path=model_dir,
+            lora_dir=str(tmp_path / "lora"),
+            router_checkpoint=str(tmp_path / "router.safetensors"),
+        )
+        # Should be the expanded local path, not treated as a repo ID
+        assert sources["model_path"] == model_dir
+
+    def test_auto_detect_default_local_layout(self, monkeypatch, tmp_path):
+        """If ckpt/Mega-ASR exists locally and no model_path given, use it automatically."""
+        local_ckpt = tmp_path / "ckpt" / "Mega-ASR"
+        local_ckpt.mkdir(parents=True)
+
+        # chdir so that the relative path "ckpt/Mega-ASR" resolves under tmp_path
+        monkeypatch.chdir(tmp_path)
+
+        sources = hub.resolve_sources()
+
+        # resolve_sources returns paths derived from the relative ckpt_dir
+        assert "Qwen3-ASR-1.7B" in sources["model_path"]
+        assert "mega-asr-merged" in sources["lora_dir"]
+        assert "best_acc_model.safetensors" in sources["router_checkpoint"]
