@@ -8,7 +8,6 @@ What Flash-Mega-ASR adds on top of Mega-ASR:
 - **Batched grouped inference** — route once, group by decision, batch per group
 - **Auto flash-attention backend** — FA2 → FA3 → SDPA → eager, device-aware
 - **Device & dtype auto-detection** — bf16/fp16/fp32 + CUDA/MPS/CPU, zero config
-- **CLI + WebUI** — `flash-mega-asr` command and Streamlit demo
 
 > For Mega-ASR's architecture (audio quality routing, LoRA dispatch), see the [upstream project](https://huggingface.co/zhifeixie/Mega-ASR).
 
