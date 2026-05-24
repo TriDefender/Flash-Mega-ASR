@@ -48,8 +48,27 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("pe", pe.unsqueeze(0))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.pe[:, : x.size(1)]
+        seq_len = x.size(1)
+        if seq_len > self.pe.size(1):
+            # Dynamically expand positional encoding for longer sequences
+            pe = self._expand_pe(seq_len, x.device, x.dtype)
+        else:
+            pe = self.pe[:, :seq_len]
+        x = x + pe
         return self.dropout(x)
+
+    def _expand_pe(self, length: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        """Recompute positional encoding up to *length* positions."""
+        d_model = self.pe.size(2)
+        position = torch.arange(0, length, dtype=dtype, device=device).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2, dtype=dtype, device=device)
+            * (-math.log(10000.0) / d_model)
+        )
+        pe = torch.zeros(1, length, d_model, device=device, dtype=dtype)
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
+        return pe
 
 class AttentionPooling(nn.Module):
     def __init__(self, d_model: int) -> None:
