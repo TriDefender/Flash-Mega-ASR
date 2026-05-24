@@ -99,6 +99,74 @@ class DummyBatchMelExtractor:
         return torch_ones((batch_size, 1, self.n_mels, time_steps), dtype=torch_float32)
 
 
+class DummyLoadedModel:
+    def __init__(self):
+        self.loaded_state_dict = None
+        self.to_device = None
+        self.eval_called = False
+
+    def load_state_dict(self, state_dict):
+        self.loaded_state_dict = state_dict
+
+    def to(self, device):
+        self.to_device = device
+        return self
+
+    def eval(self):
+        self.eval_called = True
+        return self
+
+
+class DummyLoadedMelExtractor:
+    def __init__(self, *, sample_rate, n_mels):
+        self.sample_rate = sample_rate
+        self.n_mels = n_mels
+        self.to_device = None
+        self.eval_called = False
+
+    def to(self, device):
+        self.to_device = device
+        return self
+
+    def eval(self):
+        self.eval_called = True
+        return self
+
+
+class FakeSafeOpen:
+    def __init__(self, metadata):
+        self._metadata = metadata
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def metadata(self):
+        return self._metadata
+
+
+def configure_load_model_dependencies(monkeypatch, *, model=None):
+    loaded_model = model or DummyLoadedModel()
+    mel_extractor = DummyLoadedMelExtractor(sample_rate=16000, n_mels=64)
+
+    monkeypatch.setattr(
+        router,
+        "safe_open",
+        lambda *args, **kwargs: FakeSafeOpen({"config": '{"model": {"n_mels": 64}}'}),
+    )
+    monkeypatch.setattr(router, "safe_load_file", lambda *args, **kwargs: {"weights": 1})
+    monkeypatch.setattr(router, "create_audio_quality_model", lambda config: loaded_model)
+    monkeypatch.setattr(
+        router,
+        "LogMelSpectrogram",
+        lambda sample_rate, n_mels: mel_extractor,
+    )
+
+    return loaded_model, mel_extractor
+
+
 def test_load_audio_returns_correct_shape(monkeypatch):
     mono_signal = np.array([0.1, -0.2, 0.3, -0.4], dtype=np.float32)
     stereo_signal = np.stack([mono_signal, mono_signal], axis=1)
@@ -194,6 +262,69 @@ def test_load_audio_different_sample_rates(monkeypatch):
 
     assert init_calls == [(8000, 16000), (44100, 16000)]
     assert set(router_instance._resamplers) == {8000, 44100}
+
+
+def test_load_model_compiles_on_cuda(monkeypatch):
+    compile_calls = []
+    loaded_model, mel_extractor = configure_load_model_dependencies(monkeypatch)
+
+    def fake_compile(model, mode):
+        compile_calls.append((model, mode))
+        return SimpleNamespace(compiled_from=model)
+
+    monkeypatch.setattr(router.torch, "compile", fake_compile, raising=False)
+
+    router_instance = make_router(device="cuda")
+    router_instance.checkpoint_path = "router.safetensors"
+
+    model, returned_mel_extractor = router_instance._load_model()
+
+    assert compile_calls == [(loaded_model, "reduce-overhead")]
+    assert model.compiled_from is loaded_model
+    assert loaded_model.to_device == "cuda"
+    assert loaded_model.eval_called is True
+    assert returned_mel_extractor is mel_extractor
+    assert mel_extractor.to_device == "cuda"
+    assert mel_extractor.eval_called is True
+
+
+def test_load_model_skips_compile_on_cpu(monkeypatch):
+    compile_called = False
+    loaded_model, mel_extractor = configure_load_model_dependencies(monkeypatch)
+
+    def fake_compile(model, mode):
+        nonlocal compile_called
+        compile_called = True
+        return model
+
+    monkeypatch.setattr(router.torch, "compile", fake_compile, raising=False)
+
+    router_instance = make_router(device="cpu")
+    router_instance.checkpoint_path = "router.safetensors"
+
+    model, returned_mel_extractor = router_instance._load_model()
+
+    assert compile_called is False
+    assert model is loaded_model
+    assert returned_mel_extractor is mel_extractor
+
+
+def test_load_model_falls_back_on_compile_failure(monkeypatch):
+    loaded_model, mel_extractor = configure_load_model_dependencies(monkeypatch)
+
+    def fake_compile(model, mode):
+        raise RuntimeError("compile failed")
+
+    monkeypatch.setattr(router.torch, "compile", fake_compile, raising=False)
+
+    router_instance = make_router(device="cuda")
+    router_instance.checkpoint_path = "router.safetensors"
+
+    model, returned_mel_extractor = router_instance._load_model()
+
+    assert model is loaded_model
+    assert returned_mel_extractor is mel_extractor
+    assert loaded_model.eval_called is True
 
 
 def test_infer_uses_inference_mode():
