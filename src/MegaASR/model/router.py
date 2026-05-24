@@ -120,23 +120,28 @@ class AudioQualityRouter:
             return []
 
         waveforms = self._load_audio_batch(audio_paths)
-        mels = [self.mel_extractor(w) for w in waveforms]
+        waveform_lengths = [waveform.shape[-1] for waveform in waveforms]
+        max_wave_len = max(waveform_lengths)
 
-        max_t = max(m.shape[-1] for m in mels)
+        batch_size = len(waveforms)
+        padded_waveforms = waveforms[0].new_zeros((batch_size, 1, max_wave_len))
+        for i, waveform in enumerate(waveforms):
+            padded_waveforms[i, :, : waveform.shape[-1]] = waveform
 
-        batch_size = len(mels)
-        n_mels = mels[0].shape[1]
-        padded = mels[0].new_zeros((batch_size, n_mels, max_t))
-        masks = padded.new_ones((batch_size, max_t)).bool()
+        mels_batch = self.mel_extractor(padded_waveforms)
+        if mels_batch.ndim == 4:
+            mels_batch = mels_batch.squeeze(1)
 
-        for i, mel in enumerate(mels):
-            mel_no_batch = mel.squeeze(0)
-            t = mel_no_batch.shape[-1]
-            padded[i, :, :t] = mel_no_batch[:, :t]
-            if t < max_t:
-                masks[i, t:] = False
+        hop_length = int(getattr(self.mel_extractor.mel_transform, "hop_length", 160))
+        mel_lengths = [(length // hop_length) + 1 for length in waveform_lengths]
+        max_mel_t = mels_batch.shape[-1]
 
-        mels_batch = padded.transpose(1, 2)
+        masks = padded_waveforms.new_ones((batch_size, max_mel_t)).bool()
+        for i, mel_len in enumerate(mel_lengths):
+            if mel_len < max_mel_t:
+                masks[i, mel_len:] = False
+
+        mels_batch = mels_batch.transpose(1, 2)
 
         logits = self.model(mels_batch, mask=masks)
         probs = F.softmax(logits, dim=-1)
