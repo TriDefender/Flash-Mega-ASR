@@ -1,57 +1,32 @@
 # Flash-Mega-ASR
 
-**Performance-optimized inference framework for [Mega-ASR](https://huggingface.co/zhifeixie/Mega-ASR).**
+**Performance-optimized inference framework for [Mega-ASR](https://huggingface.co/zhifeixie/Mega-ASR)**, built on [Qwen3-ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B).
 
-Mega-ASR is an audio-quality-aware speech recognition system that uses a lightweight classifier to detect degraded audio (noise, reverberation, far-field, clipping, etc.) and dynamically activates LoRA-enhanced weights only when needed. It is built on top of [Qwen3-ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B).
+What Flash-Mega-ASR adds on top of Mega-ASR:
 
-**Flash-Mega-ASR** is our modified and extended version that adds:
+- **Zero-overhead LoRA switching** — precomputed weight deltas applied via in-place `weight.data.add_()`, no PEFT dispatch
+- **Batched grouped inference** — route once, group by decision, batch per group
+- **Auto flash-attention backend** — FA2 → FA3 → SDPA → eager, device-aware
+- **Device & dtype auto-detection** — bf16/fp16/fp32 + CUDA/MPS/CPU, zero config
+- **CLI + WebUI** — `flash-mega-asr` command and Streamlit demo
 
-- **Zero-overhead LoRA switching** — Precomputed weight deltas are applied directly to model parameters via in-place addition (`weight.data.add_(delta)`), avoiding the PEFT load/unload overhead entirely. Switching takes sub-millisecond instead of seconds.
-- **Batched grouped inference** — All audios are routed first, grouped by decision (base vs. LoRA), then processed in a single batched transcribe call per group. Minimizes the number of LoRA switches per batch.
-- **Auto flash-attention backend** — Resolves the fastest available attention implementation at runtime (FlashAttention 2/3 → PyTorch SDPA → eager) based on hardware capability.
-- **Device and dtype auto-detection** — Picks the optimal precision (bfloat16 on Ampere+, float16 on older CUDA, float32 on CPU) and device (CUDA → MPS → CPU) automatically.
-- **CLI with JSON output** — `flash-mega-asr` command-line tool with progress bars, structured JSON results, and runtime metadata.
-- **Streamlit WebUI** — Interactive demo with mic recording, file upload, real-time spectrograms, and system monitoring.
-
-## How It Works
-
-```
-                          ┌─────────────────────────────┐
- Audio ──► AudioQualityRouter (192-dim Transformer)     │
-            classifies as "clean" or "degraded"          │
-                          │                              │
-              ┌───────────┴───────────┐                  │
-              ▼                       ▼                  │
-        Qwen3-ASR              Qwen3-ASR + LoRA         │
-        (base weights)         (delta added in-place)    │
-              │                       │                  │
-              └───────────┬───────────┘                  │
-                          ▼                              │
-                     Transcription                       │
-                          └─────────────────────────────┘
-```
-
-The audio quality router is a compact Transformer encoder (1 layer, 192 dimensions) with a ConvFrontend that takes log-mel spectrograms and outputs a 2-class probability. When the "degraded" probability exceeds a configurable threshold, the system applies the precomputed LoRA delta to the base model weights. On clean audio, it skips the delta entirely.
-
-The `LoRADeltaSwitch` precomputes `delta = B @ A * (alpha / rank)` at load time for every LoRA target module, then keeps the delta tensors on GPU. Switching is a single `weight.data.add_(delta, alpha=±1)` call per module — no PEFT dispatch, no adapter loading, no recomputation.
+> For Mega-ASR's architecture (audio quality routing, LoRA dispatch), see the [upstream project](https://huggingface.co/zhifeixie/Mega-ASR).
 
 ## Installation
 
+Package manager: [uv](https://docs.astral.sh/uv/) (recommended) or pip.
+
 ```bash
 # Core install (editable)
-pip install -e .
+uv pip install -e .
 
-# FlashAttention 2 (recommended for CUDA, significantly faster)
-pip install -U flash-attn --no-build-isolation
+# FlashAttention 2 (recommended for CUDA)
+uv pip install -U flash-attn --no-build-isolation
 
-# WebUI dependencies
-pip install -e ".[webui]"
-
-# Evaluation dependencies (WER/CER)
-pip install -e ".[eval]"
-
-# Everything
-pip install -e ".[all]"
+# Extras
+uv pip install -e ".[webui]"    # Streamlit WebUI
+uv pip install -e ".[eval]"     # WER/CER evaluation
+uv pip install -e ".[all]"      # Everything
 ```
 
 Requires Python ≥ 3.10, PyTorch ≥ 2.10, CUDA (recommended).
@@ -132,7 +107,7 @@ python infer.py --audio audio.wav --ckpt_dir ckpt/Mega-ASR
 python infer.py --audio audio.wav --no-routing
 ```
 
-Works from a fresh checkout without `pip install -e .` — the script bootstraps the `src/` path automatically.
+Works from a fresh checkout without `uv pip install -e .` — the script bootstraps the `src/` path automatically.
 
 ### WebUI
 
@@ -177,6 +152,41 @@ Input is JSONL with `audio` and `answer` fields. The script appends `prediction`
 
 See [src/MegaASR/eval/readme.md](src/MegaASR/eval/readme.md) for format details.
 
+## Benchmark
+
+Batch inference throughput comparison against the original Mega-ASR. All tests run on a single **NVIDIA GeForce RTX 4060 Ti** with batch size 4, `max_new_tokens=256`, 6 audio samples (53.8s total audio), 3 inference repeats each.
+
+### Batch Inference (batch_size=4)
+
+| Engine | Precision | Attention | Batch Latency | Batch RTF | vs Mega-ASR |
+|---|---|---|---|---|---|
+| Mega-ASR (original) | float32 | SDPA | 4.04s | 0.0899 | — |
+| **Flash-Mega-ASR** | **bf16** | **FlashAttn 2** | **2.67s** | **0.0594** | **1.51× faster** |
+| **Flash-Mega-ASR** | **fp16** | **FlashAttn 2** | **2.80s** | **0.0623** | **1.44× faster** |
+| **Flash-Mega-ASR** | **fp16** | **SDPA** | **2.42s** | **0.054** | **1.67× faster** |
+
+### Model Load Time
+
+| Engine | Load Time | Speedup |
+|---|---|---|
+| Mega-ASR (original) | 37.77s | — |
+| **Flash-Mega-ASR** (all configs) | **~8.7s** | **~4.3× faster** |
+
+The load time improvement comes from zero-copy LoRA delta precomputation instead of PEFT's full adapter dispatch.
+
+### Per-Sample Latency
+
+| Sample | Duration | Mega-ASR | Flash bf16+FA2 | Flash fp16+SDPA |
+|---|---|---|---|---|
+| sample-1 | 17.02s | 1.78s | 1.94s | 1.62s |
+| sample-2 | 17.24s | 1.14s | 1.23s | 1.16s |
+| sample-3 | 6.27s | 0.48s | 0.57s | 0.55s |
+| sample-4 | 4.39s | 0.48s | 0.53s | 0.50s |
+| sample-5 | 6.27s | 1.15s | 1.22s | 1.10s |
+| sample-6 | 2.60s | 0.31s | 0.38s | 0.34s |
+
+Single-sample latency is comparable between engines — the major gains come from batched grouped inference, which avoids repeated LoRA load/unload cycles and amortizes routing cost across the entire batch.
+
 ## Project Structure
 
 ```
@@ -202,27 +212,12 @@ src/MegaASR/
 
 ## Key Components
 
-### LoRADeltaSwitch
-
-At initialization, loads the LoRA adapter safetensors and computes `delta = (B @ A) * alpha / rank` for every target module. Stores deltas on GPU. Switching between base and LoRA is a single pass of `weight.data.add_(delta, alpha=±1)` across all modules — no PEFT dispatch overhead, no adapter re-injection.
-
-Supports block-structured LoRA (`mega_lora_blocks.json`) where different blocks of the same weight matrix have different ranks and alpha values.
-
-### AudioQualityRouter
-
-A compact audio classifier: `ConvFrontend (2-layer 1D Conv)` → `PositionalEncoding` → `TransformerEncoder (1 layer)` → `AttentionPooling` → `Linear classifier (2-class)`.
-
-Takes 16kHz mono audio, computes log-mel spectrograms (80 bins), runs a single forward pass. Returns `(is_degraded: bool, degraded_prob: float)`. Supports batch inference with automatic length padding and masking.
-
-### Backend Resolver
-
-Auto-detects the best attention implementation:
-- **FlashAttention 2** — fastest on CUDA, requires `flash-attn` package
-- **FlashAttention 3** — Hopper (H100+) GPUs only
-- **PyTorch SDPA** — built-in scaled dot product attention (torch ≥ 2.0)
-- **Eager** — fallback, no kernel optimizations
-
-Resolution is device-aware: CUDA tries FA2 first, CPU/MPS goes straight to SDPA.
+| Component | File | What it does |
+|---|---|---|
+| `LoRADeltaSwitch` | `model/utils/lora_switch.py` | Precomputes `delta = B @ A * α/rank`, applies via in-place `add_()` — sub-ms switching |
+| `AudioQualityRouter` | `model/router.py` | Compact Transformer (1L, 192-dim) classifies audio as clean/degraded from log-mel |
+| Backend Resolver | `runtime/backend.py` | Auto-selects FA2 → FA3 → SDPA → eager based on device |
+| Device/Dtype | `runtime/device.py` | Auto-detects CUDA/MPS/CPU and bf16/fp16/fp32 |
 
 ## Citation
 
