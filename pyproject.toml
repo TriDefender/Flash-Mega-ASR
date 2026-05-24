@@ -1,6 +1,6 @@
 [project]
 name = "flash-mega-asr"
-version = "0.1.0"
+version = "0.1.2"
 description = "Flash-attention optimized Mega-ASR: fast batched inference with LoRA routing for robust speech recognition"
 readme = "README.md"
 license = { text = "Apache-2.0" }
