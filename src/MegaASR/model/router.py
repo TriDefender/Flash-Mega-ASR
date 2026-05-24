@@ -82,7 +82,7 @@ class AudioQualityRouter:
         """Load and resample multiple audio files to waveforms."""
         return [self._load_audio(p) for p in audio_paths]
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def infer(self, audio_path: str | os.PathLike[str] | torch.Tensor) -> dict[str, Any]:
         if isinstance(audio_path, torch.Tensor):
             waveform = audio_path.to(self.device)
@@ -107,7 +107,7 @@ class AudioQualityRouter:
             "label": int(is_degraded),
         }
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def batch_infer(
         self, audio_paths: list[str | os.PathLike[str]]
     ) -> list[dict[str, Any]]:

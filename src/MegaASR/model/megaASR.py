@@ -147,7 +147,7 @@ class MegaASR:
         self._set_lora(False)
         return self.asr.infer(self._unwrap_audio(audio), **kwargs)
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def batch_infer(self, audios: list[Any], **kwargs: Any) -> list[Any]:
         """True batched inference with grouped LoRA routing.
 

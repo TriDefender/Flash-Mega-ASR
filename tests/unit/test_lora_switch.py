@@ -10,6 +10,8 @@ from safetensors.torch import save_file as safe_save_file
 torch_zeros = getattr(torch, "zeros")
 torch_tensor = getattr(torch, "tensor")
 torch_allclose = getattr(torch, "allclose")
+torch_device = getattr(torch, "device")
+torch_is_inference_mode_enabled = getattr(torch, "is_inference_mode_enabled")
 
 
 def load_lora_switch_module():
@@ -92,3 +94,32 @@ def test_fan_in_fan_out_delta_matches_baseline(tmp_path):
     assert switch.items[0]["delta"].shape == model.linear.weight.shape
     weight_dtype: Any = cast(torch.Tensor, model.linear.weight).dtype
     assert torch_allclose(switch.items[0]["delta"], expected_delta.to(dtype=weight_dtype))
+
+
+def test_set_active_uses_inference_mode():
+    class FakeData:
+        def __init__(self) -> None:
+            self.inference_mode_enabled = False
+
+        def add_(self, delta, alpha):
+            self.inference_mode_enabled = torch_is_inference_mode_enabled()
+
+    class FakeWeight:
+        def __init__(self) -> None:
+            self.device = torch_device("cpu")
+            self.data = FakeData()
+
+    class FakeDelta:
+        def __init__(self) -> None:
+            self.device = torch_device("cpu")
+
+        def to(self, device=None):
+            return self
+
+    switch = LoRADeltaSwitch(keep_delta_on_gpu=False)
+    weight = FakeWeight()
+    switch.items = [{"weight": weight, "delta": FakeDelta()}]
+
+    switch.set_active(True)
+
+    assert weight.data.inference_mode_enabled is True

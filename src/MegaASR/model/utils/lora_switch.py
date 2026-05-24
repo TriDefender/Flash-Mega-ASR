@@ -219,7 +219,7 @@ class LoRADeltaSwitch:
                 stacklevel=2,
             )
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def set_active(self, active: bool) -> float:
         if self.active == active:
             return 0.0

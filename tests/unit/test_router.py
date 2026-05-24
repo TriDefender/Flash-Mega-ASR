@@ -7,6 +7,12 @@ import numpy as np
 import torch
 
 
+torch_float32 = getattr(torch, "float32")
+torch_ones = getattr(torch, "ones")
+torch_tensor = getattr(torch, "tensor")
+torch_is_inference_mode_enabled = getattr(torch, "is_inference_mode_enabled")
+
+
 def load_router_module():
     module_path = Path(__file__).resolve().parents[2] / "src" / "MegaASR" / "model" / "router.py"
 
@@ -67,7 +73,7 @@ def test_load_audio_returns_correct_shape(monkeypatch):
     loaded = make_router()._load_audio("dummy.wav")
 
     assert tuple(loaded.shape) == (1, mono_signal.shape[0])
-    assert loaded.dtype == getattr(torch, "float32")
+    assert loaded.dtype == torch_float32
 
 
 def test_load_audio_resamples_when_sr_mismatch(monkeypatch):
@@ -103,3 +109,52 @@ def test_load_audio_no_resample_when_16k(monkeypatch):
     make_router()._load_audio("dummy.wav")
 
     assert called is False
+
+
+def test_infer_uses_inference_mode():
+    class DummyMelExtractor:
+        def __call__(self, waveform):
+            assert torch_is_inference_mode_enabled() is True
+            return torch_ones((1, 2, 3), dtype=torch_float32)
+
+    class DummyModel:
+        def __call__(self, mel, mask=None):
+            assert torch_is_inference_mode_enabled() is True
+            assert tuple(mel.shape) == (1, 3, 2)
+            assert mask is None
+            return torch_tensor([[0.0, 1.0]], dtype=torch_float32)
+
+    router_instance = make_router()
+    router_instance.mel_extractor = DummyMelExtractor()
+    router_instance.model = DummyModel()
+
+    result = router_instance.infer(torch_tensor([0.1, -0.2, 0.3], dtype=torch_float32))
+
+    assert result["label"] == 1
+
+
+def test_batch_infer_uses_inference_mode():
+    class DummyMelExtractor:
+        def __call__(self, waveform):
+            assert torch_is_inference_mode_enabled() is True
+            return torch_ones((1, 2, waveform.shape[-1]), dtype=torch_float32)
+
+    class DummyModel:
+        def __call__(self, mel, mask=None):
+            assert torch_is_inference_mode_enabled() is True
+            assert tuple(mel.shape) == (2, 4, 2)
+            assert mask is not None
+            assert tuple(mask.shape) == (2, 4)
+            return torch_tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch_float32)
+
+    router_instance = make_router()
+    router_instance.mel_extractor = DummyMelExtractor()
+    router_instance.model = DummyModel()
+    router_instance._load_audio_batch = lambda audio_paths: [
+        torch_tensor([[0.1, 0.2]], dtype=torch_float32),
+        torch_tensor([[0.1, 0.2, 0.3, 0.4]], dtype=torch_float32),
+    ]
+
+    results = router_instance.batch_infer(["a.wav", "b.wav"])
+
+    assert [result["label"] for result in results] == [0, 1]
