@@ -72,7 +72,7 @@ class AudioQualityRouter:
                 sr // gcd,
             )
 
-        waveform = torch.Tensor(audio_np).float().unsqueeze(0)
+        waveform = getattr(torch, "from_numpy")(audio_np).float().unsqueeze(0)
 
         return waveform.to(self.device)
 
