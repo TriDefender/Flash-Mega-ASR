@@ -18,6 +18,7 @@ logs/
 *.log
 runs/
 outputs/
+output.json
 wandb/
 tensorboard/
 
@@ -53,3 +54,6 @@ Thumbs.db
 
 # Package manager lockfiles (use pyproject.toml as single source of truth)
 uv.lock
+
+# Sisyphus local state
+.sisyphus/ralph-loop.local.md

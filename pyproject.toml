@@ -1,6 +1,6 @@
 [project]
 name = "flash-mega-asr"
-version = "0.1.0"
+version = "0.1.2"
 description = "Flash-attention optimized Mega-ASR: fast batched inference with LoRA routing for robust speech recognition"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -19,10 +19,14 @@ dependencies = [
     "huggingface_hub",
     "peft",
     "rich>=13.0",
+    "triton-windows>=3.0; sys_platform == 'win32'",
+    "triton>=3.0; sys_platform != 'win32'",
 ]
 
 [project.optional-dependencies]
-flash-attn = []
+flash-attn = [
+    "flash-attn>=2.0; sys_platform != 'win32'",
+]
 webui = [
     "streamlit",
     "streamlit-mic-recorder",
@@ -48,11 +52,14 @@ all = [
 flash-mega-asr = "MegaASR.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "torch>=2.10"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/MegaASR"]
+
+[project.urls]
+Repository = "https://github.com/TriDefender/Flash-Mega-ASR"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

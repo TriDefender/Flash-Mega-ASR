@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Mega-ASR inference")
     parser.add_argument(
         "--audio",
-        default=str(ROOT_DIR / "assets" / "example" / "F01_22GC010K_STR.wav"),
+        required=True,
         help="audio file path",
     )
     parser.add_argument(

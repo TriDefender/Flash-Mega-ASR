@@ -88,27 +88,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def resolve_ckpt_paths(args: argparse.Namespace) -> dict[str, str | None]:
-    """Resolve checkpoint paths from --ckpt-dir or individual flags."""
-    if args.ckpt_dir:
-        ckpt_dir = Path(args.ckpt_dir).expanduser()
-        return {
-            "model_path": args.model_path or str(ckpt_dir / "Qwen3-ASR-1.7B"),
-            "lora_dir": args.lora_dir or str(ckpt_dir / "mega-asr-merged"),
-            "router_checkpoint": (
-                args.router_checkpoint
-                or str(ckpt_dir / "audio_quality_router" / "best_acc_model.safetensors")
-                if args.routing
-                else None
-            ),
-        }
+    """Resolve checkpoint paths from --ckpt-dir, individual flags, or HF Hub defaults."""
+    from MegaASR.model.hub import resolve_sources
 
-    from MegaASR.model.megaASR import MegaASR
-
-    return {
-        "model_path": args.model_path or MegaASR.DEFAULT_MODEL_DIR,
-        "lora_dir": args.lora_dir or MegaASR.DEFAULT_LORA_DIR,
-        "router_checkpoint": (args.router_checkpoint or MegaASR.DEFAULT_ROUTER_CHECKPOINT) if args.routing else None,
-    }
+    return resolve_sources(
+        model_path=args.model_path,
+        lora_dir=args.lora_dir,
+        router_checkpoint=args.router_checkpoint,
+        ckpt_dir=args.ckpt_dir,
+        routing_enabled=args.routing,
+    )
 
 
 def resolve_dtype_arg(dtype_name: str, device: str) -> Any:

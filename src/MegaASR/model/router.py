@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import json
 from pathlib import Path
@@ -9,29 +8,26 @@ from typing import Any
 import soundfile as sf  # pyright: ignore[reportMissingImports]
 import torch
 import torch.nn.functional as F
+import torchaudio  # pyright: ignore[reportMissingImports]
 from safetensors.torch import load_file as safe_load_file
 from safetensors import safe_open
-from scipy.signal import resample_poly
 
 from .utils.audio_quality import LogMelSpectrogram, create_audio_quality_model
 
 class AudioQualityRouter:
-    DEFAULT_CHECKPOINT = "ckpt/Mega-ASR/audio_quality_router/best_acc_model.safetensors"
-
     def __init__(
         self,
-        checkpoint_path: str | os.PathLike[str] | None = None,
+        checkpoint_path: str | os.PathLike[str],
         *,
         device: str | None = None,
         threshold: float = 0.5,
         sample_rate: int = 16000,
     ) -> None:
-        self.checkpoint_path = str(
-            Path(checkpoint_path or self.DEFAULT_CHECKPOINT).expanduser()
-        )
+        self.checkpoint_path = str(Path(checkpoint_path).expanduser())
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.threshold = threshold
         self.sample_rate = sample_rate
+        self._resamplers: dict[int, torchaudio.transforms.Resample] = {}
 
         self.model, self.mel_extractor = self._load_model()
 
@@ -67,16 +63,15 @@ class AudioQualityRouter:
     def _load_audio(self, audio_path: str | os.PathLike[str]) -> torch.Tensor:
         audio_np, sr = sf.read(str(audio_path), always_2d=True)
         audio_np = audio_np.mean(axis=1)
+        waveform = getattr(torch, "as_tensor")(audio_np, dtype=getattr(torch, "float32")).unsqueeze(0)
 
         if sr != self.sample_rate:
-            gcd = math.gcd(sr, self.sample_rate)
-            audio_np = resample_poly(
-                audio_np,
-                self.sample_rate // gcd,
-                sr // gcd,
-            )
-
-        waveform = torch.Tensor(audio_np).float().unsqueeze(0)
+            if sr not in self._resamplers:
+                self._resamplers[sr] = torchaudio.transforms.Resample(
+                    orig_freq=sr,
+                    new_freq=self.sample_rate,
+                ).to(self.device)
+            waveform = self._resamplers[sr](waveform.to(self.device))
 
         return waveform.to(self.device)
 
@@ -86,7 +81,7 @@ class AudioQualityRouter:
         """Load and resample multiple audio files to waveforms."""
         return [self._load_audio(p) for p in audio_paths]
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def infer(self, audio_path: str | os.PathLike[str] | torch.Tensor) -> dict[str, Any]:
         if isinstance(audio_path, torch.Tensor):
             waveform = audio_path.to(self.device)
@@ -111,7 +106,7 @@ class AudioQualityRouter:
             "label": int(is_degraded),
         }
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def batch_infer(
         self, audio_paths: list[str | os.PathLike[str]]
     ) -> list[dict[str, Any]]:
@@ -124,31 +119,40 @@ class AudioQualityRouter:
             return []
 
         waveforms = self._load_audio_batch(audio_paths)
-        mels = [self.mel_extractor(w) for w in waveforms]
+        waveform_lengths = [waveform.shape[-1] for waveform in waveforms]
+        max_wave_len = max(waveform_lengths)
 
-        max_t = max(m.shape[-1] for m in mels)
+        batch_size = len(waveforms)
+        padded_waveforms = waveforms[0].new_zeros((batch_size, 1, max_wave_len))
+        for i, waveform in enumerate(waveforms):
+            padded_waveforms[i, :, : waveform.shape[-1]] = waveform
 
-        batch_size = len(mels)
-        n_mels = mels[0].shape[1]
-        padded = mels[0].new_zeros((batch_size, n_mels, max_t))
-        masks = padded.new_ones((batch_size, max_t)).bool()
+        mels_batch = self.mel_extractor(padded_waveforms)
+        if mels_batch.ndim == 4:
+            mels_batch = mels_batch.squeeze(1)
 
-        for i, mel in enumerate(mels):
-            mel_no_batch = mel.squeeze(0)
-            t = mel_no_batch.shape[-1]
-            padded[i, :, :t] = mel_no_batch[:, :t]
-            if t < max_t:
-                masks[i, t:] = False
+        hop_length = int(getattr(self.mel_extractor.mel_transform, "hop_length", 160))
+        mel_lengths = [(length // hop_length) + 1 for length in waveform_lengths]
+        max_mel_t = mels_batch.shape[-1]
 
-        mels_batch = padded.transpose(1, 2)
+        masks = padded_waveforms.new_ones((batch_size, max_mel_t)).bool()
+        for i, mel_len in enumerate(mel_lengths):
+            if mel_len < max_mel_t:
+                masks[i, mel_len:] = False
+
+        mels_batch = mels_batch.transpose(1, 2)
 
         logits = self.model(mels_batch, mask=masks)
         probs = F.softmax(logits, dim=-1)
 
+        degraded_probs = probs[:, 1]
+        is_degraded_mask = degraded_probs >= self.threshold
+        degraded_probs_list = degraded_probs.cpu().tolist()
+
         results = []
         for i in range(batch_size):
-            degraded_prob = float(probs[i, 1].item())
-            is_degraded = degraded_prob >= self.threshold
+            is_degraded = bool(is_degraded_mask[i].item())
+            degraded_prob = float(degraded_probs_list[i])
             results.append(
                 {
                     "is_degraded": is_degraded,

@@ -4,7 +4,7 @@ import json
 import os
 import time
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import torch
 from safetensors.torch import load_file as safe_load_file
@@ -103,7 +103,7 @@ class LoRADeltaSwitch:
         fan_in_fan_out = bool(config.get("fan_in_fan_out", False))
 
         module_dict = dict(parent_module.named_modules())
-        grouped: dict[str, dict[str, torch.Tensor]] = {}
+        grouped: dict[str, dict[str, Any]] = {}
 
         for key, tensor in state.items():
             module_name, raw_module_name, kind = self._split_lora_key(key)
@@ -132,7 +132,7 @@ class LoRADeltaSwitch:
                     "raw_module_name": raw_module_name,
                 },
             )
-            item[kind] = tensor.cpu()
+            item[kind] = tensor
 
         loaded = 0
         missing = []
@@ -140,8 +140,8 @@ class LoRADeltaSwitch:
         for pair in grouped.values():
             if "A" not in pair or "B" not in pair:
                 continue
-            module_name = pair["target_module_name"]
-            raw_module_name = pair["raw_module_name"]
+            module_name = cast(str, pair["target_module_name"])
+            raw_module_name = cast(str, pair["raw_module_name"])
             if module_name not in module_dict:
                 missing.append(module_name)
                 continue
@@ -151,9 +151,10 @@ class LoRADeltaSwitch:
                 missing.append(module_name)
                 continue
 
-            weight = module.weight
-            a_matrix = pair["A"].to(device=weight.device, dtype=torch.float32)
-            b_matrix = pair["B"].to(device=weight.device, dtype=torch.float32)
+            weight = cast(torch.Tensor, module.weight)
+            compute_dtype: Any = getattr(torch, "float32")
+            a_matrix = cast(torch.Tensor, pair["A"]).to(device=weight.device, dtype=compute_dtype)
+            b_matrix = cast(torch.Tensor, pair["B"]).to(device=weight.device, dtype=compute_dtype)
             module_blocks = blocks.get(raw_module_name) or blocks.get(module_name)
 
             if module_blocks:
@@ -163,10 +164,11 @@ class LoRADeltaSwitch:
                     end = int(block["end"])
                     block_rank = int(block.get("rank", end - start))
                     block_alpha = int(block.get("alpha", block_rank))
-                    delta = torch.matmul(b_matrix[:, start:end], a_matrix[start:end])
-                    delta = delta * (float(block_alpha) / float(block_rank))
                     if fan_in_fan_out:
-                        delta = delta.T
+                        delta = torch.matmul(a_matrix[start:end].T, b_matrix[:, start:end].T)
+                    else:
+                        delta = torch.matmul(b_matrix[:, start:end], a_matrix[start:end])
+                    delta = delta * (float(block_alpha) / float(block_rank))
                     deltas.append(delta)
             else:
                 adapter_rank = rank_pattern.get(raw_module_name, rank_pattern.get(module_name, rank))
@@ -177,9 +179,10 @@ class LoRADeltaSwitch:
                     alpha_pattern.get(module_name, lora_alpha),
                 )
                 scaling = float(adapter_alpha) / float(adapter_rank)
-                delta = torch.matmul(b_matrix, a_matrix) * scaling
                 if fan_in_fan_out:
-                    delta = delta.T
+                    delta = torch.matmul(a_matrix.T, b_matrix.T) * scaling
+                else:
+                    delta = torch.matmul(b_matrix, a_matrix) * scaling
                 deltas = [delta]
 
             for delta in deltas:
@@ -216,7 +219,7 @@ class LoRADeltaSwitch:
                 stacklevel=2,
             )
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def set_active(self, active: bool) -> float:
         if self.active == active:
             return 0.0
