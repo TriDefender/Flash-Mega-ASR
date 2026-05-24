@@ -1,25 +1,17 @@
 from __future__ import annotations
 
 import os
-import time
-from pathlib import Path
 from typing import Any
 
 import torch
 
 from .Qwen3_ASR import Qwen3ASR
+from .hub import download_all_assets, resolve_sources
 from .router import AudioQualityRouter
 from .utils.lora_switch import LoRADeltaSwitch
 
 class MegaASR:
     NAME = "Mega-ASR"
-    DEFAULT_MODEL_DIR = Qwen3ASR.DEFAULT_MODEL_DIR
-    DEFAULT_LORA_DIR = "ckpt/Mega-ASR/mega-asr-merged"
-    DEFAULT_ROUTER_CHECKPOINT = AudioQualityRouter.DEFAULT_CHECKPOINT
-    DOWNLOAD_URLS = {
-        "lora": None,
-        "router": None,
-    }
 
     def __init__(
         self,
@@ -27,6 +19,7 @@ class MegaASR:
         *,
         lora_dir: str | os.PathLike[str] | None = None,
         router_checkpoint: str | os.PathLike[str] | None = None,
+        ckpt_dir: str | os.PathLike[str] | None = None,
         routing_enabled: bool = True,
         quality_threshold: float = 0.5,
         device_map: str | None = None,
@@ -36,18 +29,25 @@ class MegaASR:
         keep_delta_on_gpu: bool = True,
         **model_kwargs: Any,
     ) -> None:
-        self.model_path = str(Path(model_path or self.DEFAULT_MODEL_DIR).expanduser())
-        self.lora_dir = str(Path(lora_dir or self.DEFAULT_LORA_DIR).expanduser())
-        self.router_checkpoint = str(
-            Path(router_checkpoint or self.DEFAULT_ROUTER_CHECKPOINT).expanduser()
+        # Resolve all asset sources: explicit paths > ckpt_dir > HF Hub
+        sources = resolve_sources(
+            model_path=model_path,
+            lora_dir=lora_dir,
+            router_checkpoint=router_checkpoint,
+            ckpt_dir=ckpt_dir,
+            routing_enabled=routing_enabled,
         )
+
+        self.model_path = sources["model_path"]
+        self.lora_dir = sources["lora_dir"]
+        self.router_checkpoint = sources["router_checkpoint"]
         self.routing_enabled = routing_enabled
 
         self.stats = {"total": 0, "use_base": 0, "use_lora": 0}
         self.switch_times: list[dict[str, float | str]] = []
 
         self.router = None
-        if self.routing_enabled:
+        if self.routing_enabled and self.router_checkpoint:
             self.router = AudioQualityRouter(
                 checkpoint_path=self.router_checkpoint,
                 device=quality_device,
@@ -67,20 +67,13 @@ class MegaASR:
         self._set_lora(True)
 
     @classmethod
-    def download(cls, name: str, target_dir: str | os.PathLike[str]) -> str:
-        url = cls.DOWNLOAD_URLS.get(name)
-        if not url:
-            raise NotImplementedError(f"Download URL for {name} is not set yet.")
-
-        from huggingface_hub import snapshot_download
-
-        return snapshot_download(
-            repo_id=url,
-            local_dir=str(Path(target_dir).expanduser()),
-            local_dir_use_symlinks=False,
-        )
+    def download(cls, target_dir: str | os.PathLike[str] | None = None) -> str:
+        """Download all Mega-ASR assets to a local directory."""
+        return download_all_assets(target_dir)
 
     def _load_loras(self) -> None:
+        if not self.lora_dir:
+            raise RuntimeError("LoRA adapter directory is required but was not resolved")
         self.lora_switch.add_adapter(
             parent_module=self.asr.model.model,
             adapter_dir=self.lora_dir,

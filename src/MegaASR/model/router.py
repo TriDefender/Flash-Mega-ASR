@@ -16,19 +16,15 @@ from scipy.signal import resample_poly
 from .utils.audio_quality import LogMelSpectrogram, create_audio_quality_model
 
 class AudioQualityRouter:
-    DEFAULT_CHECKPOINT = "ckpt/Mega-ASR/audio_quality_router/best_acc_model.safetensors"
-
     def __init__(
         self,
-        checkpoint_path: str | os.PathLike[str] | None = None,
+        checkpoint_path: str | os.PathLike[str],
         *,
         device: str | None = None,
         threshold: float = 0.5,
         sample_rate: int = 16000,
     ) -> None:
-        self.checkpoint_path = str(
-            Path(checkpoint_path or self.DEFAULT_CHECKPOINT).expanduser()
-        )
+        self.checkpoint_path = str(Path(checkpoint_path).expanduser())
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.threshold = threshold
         self.sample_rate = sample_rate

@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import os
 from importlib import import_module
-from pathlib import Path
 from typing import Any
 
 
 class Qwen3ASR:
     NAME = "Qwen3-ASR-1.7B"
     HF_REPO_ID = "Qwen/Qwen3-ASR-1.7B"
-    DEFAULT_MODEL_DIR = "ckpt/Mega-ASR/Qwen3-ASR-1.7B"
 
     def __init__(
         self,
@@ -22,7 +20,6 @@ class Qwen3ASR:
         backend: str = "auto",
         max_inference_batch_size: int = 32,
         max_new_tokens: int = 2048,
-        download_kwargs: dict[str, Any] | None = None,
         **model_kwargs: Any,
     ) -> None:
         resolve_attn_backend = import_module("MegaASR.runtime.backend").resolve_attn_backend
@@ -31,14 +28,9 @@ class Qwen3ASR:
         resolve_dtype = device_runtime.resolve_dtype
         Qwen3ASRModel = import_module("qwen_asr").Qwen3ASRModel
 
-        repo_id = repo_id or self.HF_REPO_ID
-        self.model_path = str(Path(model_path or self.DEFAULT_MODEL_DIR).expanduser())
-        if not self._has_local_model(self.model_path):
-            self.model_path = self.download_model(
-                self.model_path,
-                repo_id=repo_id,
-                **(download_kwargs or {}),
-            )
+        # model_path can be a local directory OR a HuggingFace repo ID.
+        # Default to the HF repo ID so from_pretrained uses the HF cache.
+        self.model_path = str(model_path) if model_path else (repo_id or self.HF_REPO_ID)
 
         if device_map is None:
             device_map = resolve_device()
@@ -60,30 +52,6 @@ class Qwen3ASR:
             max_inference_batch_size=max_inference_batch_size,
             max_new_tokens=max_new_tokens,
             **model_kwargs,
-        )
-
-    @staticmethod
-    def _has_local_model(model_path: str | os.PathLike[str]) -> bool:
-        path = Path(model_path).expanduser()
-        return path.is_dir() and (path / "config.json").is_file()
-
-    @staticmethod
-    def download_model(
-        model_path: str | os.PathLike[str],
-        *,
-        repo_id: str,
-        **snapshot_kwargs: Any,
-    ) -> str:
-        from huggingface_hub import snapshot_download
-
-        local_dir = Path(model_path).expanduser()
-        local_dir.mkdir(parents=True, exist_ok=True)
-
-        return snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(local_dir),
-            local_dir_use_symlinks=False,
-            **snapshot_kwargs,
         )
 
     def infer(
