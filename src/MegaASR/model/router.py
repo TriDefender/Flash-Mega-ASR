@@ -141,10 +141,14 @@ class AudioQualityRouter:
         logits = self.model(mels_batch, mask=masks)
         probs = F.softmax(logits, dim=-1)
 
+        degraded_probs = probs[:, 1]
+        is_degraded_mask = degraded_probs >= self.threshold
+        degraded_probs_list = degraded_probs.cpu().tolist()
+
         results = []
         for i in range(batch_size):
-            degraded_prob = float(probs[i, 1].item())
-            is_degraded = degraded_prob >= self.threshold
+            is_degraded = bool(is_degraded_mask[i].item())
+            degraded_prob = float(degraded_probs_list[i])
             results.append(
                 {
                     "is_degraded": is_degraded,
