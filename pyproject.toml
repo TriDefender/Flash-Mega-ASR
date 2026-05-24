@@ -21,7 +21,6 @@ dependencies = [
     "rich>=13.0",
     "triton-windows>=3.0; sys_platform == 'win32'",
     "triton>=3.0; sys_platform != 'win32'",
-    "flash-attn>=2.0; sys_platform != 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -53,7 +52,7 @@ all = [
 flash-mega-asr = "MegaASR.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "torch>=2.10"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
