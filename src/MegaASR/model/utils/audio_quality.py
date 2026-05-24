@@ -115,6 +115,7 @@ class AudioQualityClassifier(nn.Module):
             encoder_layer,
             num_layers=1,
             norm=nn.LayerNorm(d_model),
+            enable_nested_tensor=False,
         )
 
         self.pooling = AttentionPooling(d_model)
