@@ -53,13 +53,19 @@ def load_router_module():
         sys.modules.setdefault("safetensors.torch", safetensors_torch_module)
 
     try:
-        import_module("scipy.signal")
+        import_module("torchaudio")
     except ImportError:
-        scipy_module = sys.modules.setdefault("scipy", ModuleType("scipy"))
-        scipy_module.__path__ = []
-        signal_module = ModuleType("scipy.signal")
-        setattr(signal_module, "resample_poly", lambda audio, up, down: audio)
-        sys.modules["scipy.signal"] = signal_module
+        torchaudio_module = ModuleType("torchaudio")
+        setattr(
+            torchaudio_module,
+            "transforms",
+            SimpleNamespace(
+                Resample=lambda orig_freq, new_freq: SimpleNamespace(
+                    to=lambda device: (lambda waveform: waveform)
+                )
+            ),
+        )
+        sys.modules.setdefault("torchaudio", torchaudio_module)
 
     spec = spec_from_file_location("MegaASR.model.router_for_test", module_path)
     assert spec is not None
@@ -78,6 +84,7 @@ def make_router(*, sample_rate=16000, device="cpu"):
     instance.sample_rate = sample_rate
     instance.device = device
     instance.threshold = 0.5
+    instance._resamplers = {}
     return instance
 
 
@@ -104,21 +111,34 @@ def test_load_audio_returns_correct_shape(monkeypatch):
     assert loaded.dtype == torch_float32
 
 
-def test_load_audio_resamples_when_sr_mismatch(monkeypatch):
+def test_load_audio_caches_resampler(monkeypatch):
     mono_signal = np.array([0.2, -0.1, 0.4], dtype=np.float32)
     stereo_signal = np.stack([mono_signal, mono_signal], axis=1)
-    calls = []
+    init_calls = []
+    apply_calls = []
 
-    def fake_resample(audio, up, down):
-        calls.append((audio.copy(), up, down))
-        return audio
+    class FakeResample:
+        def __init__(self, orig_freq, new_freq):
+            init_calls.append((orig_freq, new_freq))
 
-    monkeypatch.setattr(router.sf, "read", lambda *args, **kwargs: (stereo_signal, 44100))
-    monkeypatch.setattr(router, "resample_poly", fake_resample)
+        def to(self, device):
+            self.device = device
+            return self
 
-    make_router()._load_audio("dummy.wav")
+        def __call__(self, waveform):
+            apply_calls.append((self.device, tuple(waveform.shape)))
+            return waveform
 
-    assert len(calls) == 1
+    monkeypatch.setattr(router.sf, "read", lambda *args, **kwargs: (stereo_signal, 8000))
+    monkeypatch.setattr(router.torchaudio.transforms, "Resample", FakeResample)
+
+    router_instance = make_router()
+    router_instance._load_audio("first.wav")
+    router_instance._load_audio("second.wav")
+
+    assert init_calls == [(8000, 16000)]
+    assert len(apply_calls) == 2
+    assert set(router_instance._resamplers) == {8000}
 
 
 def test_load_audio_no_resample_when_16k(monkeypatch):
@@ -126,17 +146,54 @@ def test_load_audio_no_resample_when_16k(monkeypatch):
     stereo_signal = np.stack([mono_signal, mono_signal], axis=1)
     called = False
 
-    def fake_resample(audio, up, down):
-        nonlocal called
-        called = True
-        return audio
+    class FakeResample:
+        def __init__(self, orig_freq, new_freq):
+            nonlocal called
+            called = True
+
+        def to(self, device):
+            return self
+
+        def __call__(self, waveform):
+            nonlocal called
+            called = True
+            return waveform
 
     monkeypatch.setattr(router.sf, "read", lambda *args, **kwargs: (stereo_signal, 16000))
-    monkeypatch.setattr(router, "resample_poly", fake_resample)
+    monkeypatch.setattr(router.torchaudio.transforms, "Resample", FakeResample)
 
-    make_router()._load_audio("dummy.wav")
+    router_instance = make_router()
+    router_instance._load_audio("dummy.wav")
 
     assert called is False
+    assert router_instance._resamplers == {}
+
+
+def test_load_audio_different_sample_rates(monkeypatch):
+    mono_signal = np.array([0.2, -0.1, 0.4], dtype=np.float32)
+    stereo_signal = np.stack([mono_signal, mono_signal], axis=1)
+    sample_rates = iter([8000, 44100])
+    init_calls = []
+
+    class FakeResample:
+        def __init__(self, orig_freq, new_freq):
+            init_calls.append((orig_freq, new_freq))
+
+        def to(self, device):
+            return self
+
+        def __call__(self, waveform):
+            return waveform
+
+    monkeypatch.setattr(router.sf, "read", lambda *args, **kwargs: (stereo_signal, next(sample_rates)))
+    monkeypatch.setattr(router.torchaudio.transforms, "Resample", FakeResample)
+
+    router_instance = make_router()
+    router_instance._load_audio("8k.wav")
+    router_instance._load_audio("44k.wav")
+
+    assert init_calls == [(8000, 16000), (44100, 16000)]
+    assert set(router_instance._resamplers) == {8000, 44100}
 
 
 def test_infer_uses_inference_mode():

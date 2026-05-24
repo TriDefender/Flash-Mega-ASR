@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import json
 from pathlib import Path
@@ -9,9 +8,9 @@ from typing import Any
 import soundfile as sf  # pyright: ignore[reportMissingImports]
 import torch
 import torch.nn.functional as F
+import torchaudio  # pyright: ignore[reportMissingImports]
 from safetensors.torch import load_file as safe_load_file
 from safetensors import safe_open
-from scipy.signal import resample_poly
 
 from .utils.audio_quality import LogMelSpectrogram, create_audio_quality_model
 
@@ -28,6 +27,7 @@ class AudioQualityRouter:
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.threshold = threshold
         self.sample_rate = sample_rate
+        self._resamplers: dict[int, torchaudio.transforms.Resample] = {}
 
         self.model, self.mel_extractor = self._load_model()
 
@@ -63,16 +63,15 @@ class AudioQualityRouter:
     def _load_audio(self, audio_path: str | os.PathLike[str]) -> torch.Tensor:
         audio_np, sr = sf.read(str(audio_path), always_2d=True)
         audio_np = audio_np.mean(axis=1)
+        waveform = getattr(torch, "as_tensor")(audio_np, dtype=getattr(torch, "float32")).unsqueeze(0)
 
         if sr != self.sample_rate:
-            gcd = math.gcd(sr, self.sample_rate)
-            audio_np = resample_poly(
-                audio_np,
-                self.sample_rate // gcd,
-                sr // gcd,
-            )
-
-        waveform = getattr(torch, "from_numpy")(audio_np).float().unsqueeze(0)
+            if sr not in self._resamplers:
+                self._resamplers[sr] = torchaudio.transforms.Resample(
+                    orig_freq=sr,
+                    new_freq=self.sample_rate,
+                ).to(self.device)
+            waveform = self._resamplers[sr](waveform.to(self.device))
 
         return waveform.to(self.device)
 
