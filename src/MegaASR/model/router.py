@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import soundfile as sf  # pyright: ignore[reportMissingImports]
 import torch
@@ -51,12 +51,6 @@ class AudioQualityRouter:
         model.load_state_dict(state_dict)
         model.to(self.device)
         model.eval()
-
-        if self.device == "cuda" and hasattr(torch, "compile"):
-            try:
-                model = cast(torch.nn.Module, torch.compile(model, mode="reduce-overhead"))
-            except Exception:
-                pass
 
         mel_extractor = LogMelSpectrogram(
             sample_rate=self.sample_rate,

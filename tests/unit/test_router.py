@@ -264,69 +264,6 @@ def test_load_audio_different_sample_rates(monkeypatch):
     assert set(router_instance._resamplers) == {8000, 44100}
 
 
-def test_load_model_compiles_on_cuda(monkeypatch):
-    compile_calls = []
-    loaded_model, mel_extractor = configure_load_model_dependencies(monkeypatch)
-
-    def fake_compile(model, mode):
-        compile_calls.append((model, mode))
-        return SimpleNamespace(compiled_from=model)
-
-    monkeypatch.setattr(router.torch, "compile", fake_compile, raising=False)
-
-    router_instance = make_router(device="cuda")
-    router_instance.checkpoint_path = "router.safetensors"
-
-    model, returned_mel_extractor = router_instance._load_model()
-
-    assert compile_calls == [(loaded_model, "reduce-overhead")]
-    assert model.compiled_from is loaded_model
-    assert loaded_model.to_device == "cuda"
-    assert loaded_model.eval_called is True
-    assert returned_mel_extractor is mel_extractor
-    assert mel_extractor.to_device == "cuda"
-    assert mel_extractor.eval_called is True
-
-
-def test_load_model_skips_compile_on_cpu(monkeypatch):
-    compile_called = False
-    loaded_model, mel_extractor = configure_load_model_dependencies(monkeypatch)
-
-    def fake_compile(model, mode):
-        nonlocal compile_called
-        compile_called = True
-        return model
-
-    monkeypatch.setattr(router.torch, "compile", fake_compile, raising=False)
-
-    router_instance = make_router(device="cpu")
-    router_instance.checkpoint_path = "router.safetensors"
-
-    model, returned_mel_extractor = router_instance._load_model()
-
-    assert compile_called is False
-    assert model is loaded_model
-    assert returned_mel_extractor is mel_extractor
-
-
-def test_load_model_falls_back_on_compile_failure(monkeypatch):
-    loaded_model, mel_extractor = configure_load_model_dependencies(monkeypatch)
-
-    def fake_compile(model, mode):
-        raise RuntimeError("compile failed")
-
-    monkeypatch.setattr(router.torch, "compile", fake_compile, raising=False)
-
-    router_instance = make_router(device="cuda")
-    router_instance.checkpoint_path = "router.safetensors"
-
-    model, returned_mel_extractor = router_instance._load_model()
-
-    assert model is loaded_model
-    assert returned_mel_extractor is mel_extractor
-    assert loaded_model.eval_called is True
-
-
 def test_infer_uses_inference_mode():
     class DummyMelExtractor:
         def __call__(self, waveform):
