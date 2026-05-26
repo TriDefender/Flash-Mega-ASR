@@ -1117,17 +1117,16 @@ name = "flash-attn"
 version = "2.8.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "einops" },
-    { name = "torch" },
+    { name = "einops", marker = "python_full_version < '3.11' or sys_platform != 'win32'" },
+    { name = "torch", marker = "python_full_version < '3.11' or sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3b/b2/8d76c41ad7974ee264754709c22963447f7f8134613fd9ce80984ed0dab7/flash_attn-2.8.3.tar.gz", hash = "sha256:1e71dd64a9e0280e0447b8a0c2541bad4bf6ac65bdeaa2f90e51a9e57de0370d", size = 8447812, upload-time = "2025-08-15T08:28:12.911Z" }
 
 [[package]]
 name = "flash-mega-asr"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
-    { name = "flash-attn" },
     { name = "huggingface-hub" },
     { name = "peft" },
     { name = "qwen-asr" },
@@ -1182,7 +1181,6 @@ webui = [
 requires-dist = [
     { name = "datasets", marker = "extra == 'eval'" },
     { name = "editdistance", marker = "extra == 'eval'" },
-    { name = "flash-attn", specifier = ">=2.0" },
     { name = "flash-attn", marker = "sys_platform != 'win32' and extra == 'flash-attn'", specifier = ">=2.0" },
     { name = "flash-mega-asr", extras = ["flash-attn", "webui", "eval", "dev"], marker = "extra == 'all'" },
     { name = "huggingface-hub" },
