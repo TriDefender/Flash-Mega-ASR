@@ -16,14 +16,10 @@ What Flash-Mega-ASR adds on top of Mega-ASR:
 Package manager: [uv](https://docs.astral.sh/uv/) (recommended) or pip.
 
 ```bash
-# Core install (editable)
+# Core install (editable, includes FlashAttention)
 uv pip install -e .
 
-# FlashAttention 2 (recommended for CUDA)
-uv pip install -U flash-attn --no-build-isolation
-
 # Extras
-uv pip install -e ".[webui]"    # Streamlit WebUI
 uv pip install -e ".[eval]"     # WER/CER evaluation
 uv pip install -e ".[all]"      # Everything
 ```
@@ -32,11 +28,7 @@ Requires Python ≥ 3.10, PyTorch ≥ 2.10, CUDA (recommended).
 
 ## Download Checkpoints
 
-```bash
-python scripts/download.py
-```
-
-Downloads all weights to `ckpt/Mega-ASR/`:
+Place checkpoint files in `ckpt/Mega-ASR/`:
 
 ```
 ckpt/Mega-ASR/
@@ -108,14 +100,6 @@ python infer.py --audio audio.wav --no-routing
 
 Works from a fresh checkout without `uv pip install -e .` — the script bootstraps the `src/` path automatically.
 
-### WebUI
-
-```bash
-streamlit run webui.py
-```
-
-Provides mic recording, file upload, real-time spectrogram visualization, and system resource monitoring. Supports English, Chinese, and Japanese interface languages.
-
 ## Benchmark
 
 Batch inference throughput comparison against the original Mega-ASR. All tests run on a single **NVIDIA GeForce RTX 4060 Ti** with batch size 4, `max_new_tokens=256`, 6 audio samples (53.8s total audio), 3 inference repeats each.
@@ -168,10 +152,11 @@ src/MegaASR/
 │   ├── backend.py              # Attention backend resolver (FA2/FA3/SDPA/eager)
 │   ├── device.py               # Device and dtype auto-detection
 │   └── results.py              # TranscriptionResult / BatchTranscriptionResult dataclasses
-├── A2S-SFT/                    # Supervised fine-tuning code
-├── DG-WGPO/                    # RL training (coming soon)
-├── eval/                       # WER/CER evaluation scripts
-└── data/                       # Dataset download utilities
+├── kernels/                    # AutoKernel-optimized Triton kernels
+│   ├── mega_fusion.py          # Fused RMSNorm + matmul + residual kernel
+│   ├── flash_attention.py      # Optimized flash attention kernel
+│   └── optimized_linear.py     # OptimizedLinear layer using Triton
+└── eval/                       # WER/CER evaluation scripts
 ```
 
 ## Key Components

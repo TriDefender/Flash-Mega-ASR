@@ -67,9 +67,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--router-checkpoint", type=str, default=None, help="Router checkpoint path")
     parser.add_argument("--ckpt-dir", type=str, default=None, help="Mega-ASR checkpoint root dir (convenience)")
     parser.add_argument("--transcript-path", type=str, default="output.json", help="Output JSON path (default: output.json)")
-    parser.add_argument("--max-new-tokens", type=int, default=256, help="Max new tokens (default: 256)")
+    parser.add_argument("--max-new-tokens", type=int, default=128, help="Max new tokens (default: 128)")
     parser.add_argument("--backend-report", action="store_true", help="Print resolved backend/device/dtype info")
     parser.add_argument("--language", type=str, default="auto", help="Language hint (default: auto-detect)")
+    parser.add_argument(
+        "--kernel-optimization",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable/disable AutoKernel Triton optimizations (default: disabled)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -202,6 +208,7 @@ def build_metadata(args: argparse.Namespace, *, backend: str, device: str, dtype
         "device": device,
         "dtype": str(dtype),
         "routing_enabled": args.routing,
+        "kernel_optimization": getattr(args, "kernel_optimization", False),
         "batch_size": args.batch_size,
         "threshold": args.threshold,
         "language": args.language,
@@ -220,12 +227,17 @@ def dump_output(output: dict[str, Any], transcript_path: str) -> None:
 def report_backend(args: argparse.Namespace, *, backend: str, device: str, dtype: Any) -> None:
     """Print resolved runtime information."""
     from MegaASR.runtime.device import get_device_info
+    from MegaASR.kernels.optimized_linear import get_optimization_status
 
     info = get_device_info()
+    kernel_status = get_optimization_status()
     print(f"Backend:  {backend}")
     print(f"Device:   {device}")
     print(f"Dtype:    {dtype}")
     print(f"Routing:  {args.routing}")
+    print(f"Kernel optimization: {getattr(args, 'kernel_optimization', False)}")
+    print(f"Triton available: {kernel_status.get('triton_available', False)}")
+    print(f"Optimized kernel available: {kernel_status.get('optimized_kernel_available', False)}")
     print(f"Device info: {json.dumps(info, indent=2)}")
 
 
@@ -263,6 +275,7 @@ def main(argv: list[str] | None = None) -> None:
         max_new_tokens=args.max_new_tokens,
         attn_implementation=backend,
         dtype=dtype,
+        enable_kernel_optimization=args.kernel_optimization,
     )
 
     with Progress(

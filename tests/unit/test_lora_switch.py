@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 import torch
 from safetensors.torch import save_file as safe_save_file
 
@@ -123,3 +124,24 @@ def test_set_active_uses_inference_mode():
     switch.set_active(True)
 
     assert weight.data.inference_mode_enabled is True
+
+
+def test_release_delta_cache_prevents_later_switching(tmp_path):
+    model = torch.nn.Module()
+    model.linear = torch.nn.Linear(3, 2, bias=False)
+    switch = LoRADeltaSwitch(keep_delta_on_gpu=False)
+    adapter_dir = write_adapter(
+        tmp_path,
+        a_matrix=torch_tensor([[1.0, 2.0, 3.0], [0.5, -1.0, 4.0]]),
+        b_matrix=torch_tensor([[2.0, -1.0], [1.5, 3.0]]),
+    )
+
+    switch.add_adapter(model, adapter_dir, name="test-adapter")
+    switch.set_active(True)
+    released = switch.release_delta_cache()
+
+    assert released == 1
+    assert switch.items == []
+    assert switch.active is True
+    with pytest.raises(RuntimeError, match="delta cache has been released"):
+        switch.set_active(False)

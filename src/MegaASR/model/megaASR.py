@@ -25,8 +25,10 @@ class MegaASR:
         device_map: str | None = None,
         quality_device: str | None = None,
         max_inference_batch_size: int = 32,
-        max_new_tokens: int = 256,
+        max_new_tokens: int = 128,
         keep_delta_on_gpu: bool = True,
+        enable_kernel_optimization: bool = False,
+        release_delta_after_single_infer: bool = True,
         **model_kwargs: Any,
     ) -> None:
         # Resolve all asset sources: explicit paths > ckpt_dir > HF Hub
@@ -42,6 +44,7 @@ class MegaASR:
         self.lora_dir = sources["lora_dir"]
         self.router_checkpoint = sources["router_checkpoint"]
         self.routing_enabled = routing_enabled
+        self.release_delta_after_single_infer = release_delta_after_single_infer
 
         self.stats = {"total": 0, "use_base": 0, "use_lora": 0}
         self.switch_times: list[dict[str, float | str]] = []
@@ -59,6 +62,7 @@ class MegaASR:
             device_map=device_map,
             max_inference_batch_size=max_inference_batch_size,
             max_new_tokens=max_new_tokens,
+            enable_kernel_optimization=enable_kernel_optimization,
             **model_kwargs,
         )
 
@@ -120,6 +124,8 @@ class MegaASR:
             return_time_stamps=return_time_stamps,
             **transcribe_kwargs,
         )
+        if use_lora and self.release_delta_after_single_infer:
+            self.lora_switch.release_delta_cache()
 
         self.stats["total"] += 1
         if use_lora:

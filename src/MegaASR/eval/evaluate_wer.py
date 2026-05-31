@@ -8,27 +8,36 @@ from pathlib import Path
 from tqdm import tqdm
 
 BATCH_SIZE = 8
-MAX_NEW_TOKENS = 256
+MAX_NEW_TOKENS = 128
 ROOT_DIR = Path(__file__).resolve().parents[3]
 sys.path.append(str(ROOT_DIR / "src"))
 sys.path.append(str(Path(__file__).resolve().parent))
 
-from cn_tn import TextNorm
-from whisper_normalizer.basic import BasicTextNormalizer
-from whisper_normalizer.english import EnglishTextNormalizer
+ENGLISH_NORMALIZER = None
+CHINESE_NORMALIZER = None
+BASIC_NORMALIZER = None
 
-ENGLISH_NORMALIZER = EnglishTextNormalizer()
-CHINESE_NORMALIZER = TextNorm(
-    to_banjiao=False,
-    to_upper=False,
-    to_lower=False,
-    remove_fillers=False,
-    remove_erhua=False,
-    check_chars=False,
-    remove_space=False,
-    cc_mode="",
-)
-BASIC_NORMALIZER = BasicTextNormalizer()
+
+def get_normalizers():
+    global ENGLISH_NORMALIZER, CHINESE_NORMALIZER, BASIC_NORMALIZER
+    if ENGLISH_NORMALIZER is None or CHINESE_NORMALIZER is None or BASIC_NORMALIZER is None:
+        from cn_tn import TextNorm
+        from whisper_normalizer.basic import BasicTextNormalizer
+        from whisper_normalizer.english import EnglishTextNormalizer
+
+        ENGLISH_NORMALIZER = EnglishTextNormalizer()
+        CHINESE_NORMALIZER = TextNorm(
+            to_banjiao=False,
+            to_upper=False,
+            to_lower=False,
+            remove_fillers=False,
+            remove_erhua=False,
+            check_chars=False,
+            remove_space=False,
+            cc_mode="",
+        )
+        BASIC_NORMALIZER = BasicTextNormalizer()
+    return ENGLISH_NORMALIZER, CHINESE_NORMALIZER, BASIC_NORMALIZER
 
 def detect_language(ref, pred):
     return "zh" if any("\u4e00" <= ch <= "\u9fff" for ch in ref + pred) else "en"
@@ -78,18 +87,20 @@ def compute_one_error(ref, pred, language):
     import editdistance as ed
     import zhconv
 
+    english_normalizer, chinese_normalizer, basic_normalizer = get_normalizers()
+
     if language == "yue":
         ref = zhconv.convert(ref, "zh-cn")
         pred = zhconv.convert(pred, "zh-cn")
     if language == "en":
-        ref = ENGLISH_NORMALIZER(ref)
-        pred = ENGLISH_NORMALIZER(pred)
+        ref = english_normalizer(ref)
+        pred = english_normalizer(pred)
     elif language == "zh":
-        ref = CHINESE_NORMALIZER(ref)
-        pred = CHINESE_NORMALIZER(pred)
+        ref = chinese_normalizer(ref)
+        pred = chinese_normalizer(pred)
     else:
-        ref = BASIC_NORMALIZER(ref)
-        pred = BASIC_NORMALIZER(pred)
+        ref = basic_normalizer(ref)
+        pred = basic_normalizer(pred)
 
     tokenizer = EvaluationTokenizer()
     ref_items = tokenizer.tokenize(ref).split()
@@ -142,7 +153,7 @@ def main():
         max_new_tokens=MAX_NEW_TOKENS,
         keep_delta_on_gpu=args.keep_delta_on_gpu,
     )
-    with open(args.input_jsonl, "r", encoding="utf-8") as f:
+    with open(args.input_jsonl, "r", encoding="utf-8-sig") as f:
         data = [json.loads(line) for line in f if line.strip()]
     outputs, total_edits, total_ref_len = [], 0, 0
 

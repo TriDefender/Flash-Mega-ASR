@@ -21,7 +21,7 @@ class TestParseArgs:
         assert args.attn == "auto"
         assert args.routing is True
         assert args.threshold == 0.5
-        assert args.max_new_tokens == 256
+        assert args.max_new_tokens == 128
 
     def test_no_routing(self):
         args = parse_args(["--file-name", "t.wav", "--no-routing"])

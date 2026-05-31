@@ -1,18 +1,18 @@
 [project]
 name = "flash-mega-asr"
-version = "0.1.2"
+version = "0.2.0"
 description = "Flash-attention optimized Mega-ASR: fast batched inference with LoRA routing for robust speech recognition"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     { name = "Flash-Mega-ASR Contributors" },
 ]
 
 dependencies = [
     "qwen-asr>=0.0.6",
-    "torch>=2.10",
-    "torchaudio>=2.10",
+    "torch==2.11",
+    "torchaudio==2.11",
     "safetensors",
     "soundfile",
     "scipy",
@@ -21,20 +21,13 @@ dependencies = [
     "rich>=13.0",
     "triton-windows>=3.0; sys_platform == 'win32'",
     "triton>=3.0; sys_platform != 'win32'",
+    "flash-attn>=2.0",
 ]
 
 [project.optional-dependencies]
-flash-attn = [
-    "flash-attn>=2.0; sys_platform != 'win32'",
-]
-webui = [
-    "streamlit",
-    "streamlit-mic-recorder",
-    "matplotlib",
-]
 eval = [
     "editdistance",
-    "sacrebleu",
+    "sacrebleu==1.5.1",
     "whisper-normalizer",
     "zhconv",
     "tqdm",
@@ -45,7 +38,7 @@ dev = [
     "ruff",
 ]
 all = [
-    "flash-mega-asr[flash-attn,webui,eval,dev]",
+    "flash-mega-asr[eval,dev]",
 ]
 
 [project.scripts]
@@ -68,3 +61,17 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+
+[tool.uv.sources]
+flash-attn = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.6/flash_attn-2.8.3+cu130torch2.11-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" }
+torch = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true

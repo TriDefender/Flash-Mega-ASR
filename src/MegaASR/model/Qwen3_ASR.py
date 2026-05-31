@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 from importlib import import_module
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class Qwen3ASR:
@@ -19,7 +22,8 @@ class Qwen3ASR:
         attn_implementation: str | None = None,
         backend: str = "auto",
         max_inference_batch_size: int = 32,
-        max_new_tokens: int = 2048,
+        max_new_tokens: int = 128,
+        enable_kernel_optimization: bool = False,
         **model_kwargs: Any,
     ) -> None:
         resolve_attn_backend = import_module("MegaASR.runtime.backend").resolve_attn_backend
@@ -53,6 +57,33 @@ class Qwen3ASR:
             max_new_tokens=max_new_tokens,
             **model_kwargs,
         )
+        
+        # Apply AutoKernel optimizations if enabled
+        if enable_kernel_optimization:
+            self._apply_kernel_optimizations()
+    
+    def _apply_kernel_optimizations(self) -> None:
+        """Apply AutoKernel-optimized Triton kernels to the model."""
+        try:
+            from MegaASR.kernels.optimized_linear import optimize_model, get_optimization_status
+            
+            status = get_optimization_status()
+            if status.get("optimized_kernel_available", False):
+                logger.info("Applying AutoKernel kernel optimizations...")
+                
+                # Get the underlying transformers model
+                if hasattr(self.model, 'model'):
+                    hf_model = self.model.model
+                else:
+                    hf_model = self.model
+                
+                # Apply optimizations
+                optimize_model(hf_model, verbose=False)
+                logger.info("AutoKernel optimizations applied successfully")
+            else:
+                logger.info("AutoKernel optimized kernels not available (Triton not installed or CUDA not available)")
+        except Exception as e:
+            logger.warning(f"Failed to apply AutoKernel optimizations: {e}")
 
     def infer(
         self,

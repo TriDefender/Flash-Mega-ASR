@@ -15,6 +15,7 @@ class LoRADeltaSwitch:
         self.keep_delta_on_gpu = keep_delta_on_gpu
         self.items: list[dict[str, Any]] = []
         self.active = False
+        self.delta_cache_released = False
 
     def _load_adapter_state(self, adapter_dir: str | os.PathLike[str]) -> dict[str, torch.Tensor]:
         adapter_dir = str(adapter_dir)
@@ -223,6 +224,11 @@ class LoRADeltaSwitch:
     def set_active(self, active: bool) -> float:
         if self.active == active:
             return 0.0
+        if self.delta_cache_released:
+            raise RuntimeError(
+                "LoRA delta cache has been released after being merged into model weights. "
+                "Reload the model to switch between base and LoRA weights again."
+            )
 
         start = time.perf_counter()
         sign = 1.0 if active else -1.0
@@ -236,3 +242,13 @@ class LoRADeltaSwitch:
 
         self.active = active
         return time.perf_counter() - start
+
+    def release_delta_cache(self) -> int:
+        """Drop cached deltas after LoRA has been permanently merged into weights."""
+        if not self.active:
+            raise RuntimeError("Cannot release LoRA deltas while LoRA weights are not active.")
+
+        released = len(self.items)
+        self.items.clear()
+        self.delta_cache_released = True
+        return released
